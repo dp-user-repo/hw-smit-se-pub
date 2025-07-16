@@ -1,0 +1,776 @@
+openapi: 3.0.3
+info:
+  title: VLAN Management API
+  description: |
+    A comprehensive REST API for managing Virtual LANs (VLANs) in enterprise network infrastructure.
+    
+    This API provides full CRUD operations for VLAN management.
+    
+    ## Key Features
+    - Complete VLAN lifecycle management
+    - Network configuration validation (CIDR notation, IP ranges)
+    - Status tracking (active, inactive, maintenance)
+    - JSON-based data persistence
+    - Comprehensive error handling with detailed responses
+    
+    ## Business Rules
+    - VLAN IDs must be unique across the system
+    - Gateway addresses must be within the specified subnet
+    - All network configurations are validated for correctness
+  version: 1.0.0
+  contact:
+    name: Network Operations Team
+    email: netops@company.com
+  license:
+    name: MIT License
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://35.224.177.126
+    description: GKE Production server
+  - url: http://localhost:8000
+    description: Development server
+
+paths:
+  /api/v1/vlans:
+    get:
+      summary: List all VLANs
+      description: |
+        Retrieve a comprehensive list of all configured VLANs in the system.
+        
+        This endpoint returns all VLANs regardless of their status. The response includes
+        complete configuration details for each VLAN including network settings and current status.
+      tags:
+        - VLANs
+      operationId: getAllVlans
+      responses:
+        200:
+          description: List of VLANs retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VLAN'
+              examples:
+                multiple_vlans:
+                  summary: Multiple VLANs response
+                  value:
+                    - id: 1
+                      name: "Production Network"
+                      vlan_id: 100
+                      subnet: "192.168.1.0/24"
+                      gateway: "192.168.1.1"
+                      status: "active"
+                    - id: 2
+                      name: "Development Network"
+                      vlan_id: 200
+                      subnet: "10.0.1.0/24"
+                      gateway: "10.0.1.1"
+                      status: "inactive"
+                empty_list:
+                  summary: No VLANs configured
+                  value: []
+        405:
+          description: Method not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        503:
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      summary: Create a new VLAN
+      description: |
+        Create a new VLAN with the specified network configuration.
+        
+        The system enforces several validation rules:
+        - VLAN ID must be unique (1-4094 range)
+        - Gateway IP must be within the specified subnet
+        - All network addresses must be valid IPv4 format
+        - Name must be unique and descriptive
+        
+        Upon successful creation, the VLAN will be assigned a unique system ID
+        and will be immediately available for network operations.
+      tags:
+        - VLANs
+      operationId: createVlan
+      requestBody:
+        required: true
+        description: VLAN configuration data
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VLANCreate'
+            examples:
+              production_vlan:
+                summary: Production VLAN
+                description: Example of creating a production network VLAN
+                value:
+                  name: "Production Network"
+                  vlan_id: 100
+                  subnet: "192.168.1.0/24"
+                  gateway: "192.168.1.1"
+                  status: "active"
+              development_vlan:
+                summary: Development VLAN
+                description: Example of creating a development network VLAN
+                value:
+                  name: "Development Network"
+                  vlan_id: 200
+                  subnet: "10.0.1.0/24"
+                  gateway: "10.0.1.1"
+                  status: "inactive"
+      responses:
+        201:
+          description: VLAN created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VLAN'
+              examples:
+                production_vlan:
+                  summary: Production VLAN created
+                  value:
+                    id: 1
+                    name: "Production Network"
+                    vlan_id: 100
+                    subnet: "192.168.1.0/24"
+                    gateway: "192.168.1.1"
+                    status: "active"
+        400:
+          description: Invalid input data or validation errors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                invalid_vlan_id:
+                  summary: VLAN ID out of range
+                  value:
+                    error: "VALIDATION_ERROR"
+                    message: "VLAN ID must be between 1 and 4094"
+                    details:
+                      errors:
+                        - msg: "ensure this value is greater than or equal to 1"
+                          type: "value_error.number.not_ge"
+                          loc: ["vlan_id"]
+        405:
+          description: Method not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        409:
+          description: VLAN conflict - duplicate VLAN ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictError'
+              examples:
+                duplicate_vlan_id:
+                  summary: Duplicate VLAN ID
+                  value:
+                    error: "VLAN_CONFLICT"
+                    message: "VLAN with ID 100 already exists"
+                    details:
+                      vlan_id: 100
+        413:
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        415:
+          description: Unsupported media type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        422:
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                gateway_not_in_subnet:
+                  summary: Gateway not in subnet
+                  value:
+                    error: "REQUEST_VALIDATION_ERROR"
+                    message: "Request validation failed"
+                    details:
+                      errors:
+                        - msg: "Gateway 10.0.0.1 is not in subnet 192.168.1.0/24"
+                          type: "value_error"
+                          loc: ["gateway"]
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        503:
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/vlans/{id}:
+    get:
+      summary: Get VLAN by ID
+      description: |
+        Retrieve detailed configuration information for a specific VLAN using its unique system ID.
+        
+        Returns complete VLAN details including network configuration, status, and metadata.
+        This is useful for retrieving current configuration before making updates or for
+        displaying detailed VLAN information in management interfaces.
+      tags:
+        - VLANs
+      operationId: getVlanById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: |
+            Unique system identifier for the VLAN.
+            This is the internal ID assigned by the system, not the VLAN ID.
+          schema:
+            type: integer
+            minimum: 1
+          example: 1
+      responses:
+        200:
+          description: VLAN retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VLAN'
+        404:
+          description: VLAN not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                vlan_not_found:
+                  summary: VLAN not found
+                  value:
+                    error: "VLAN_NOT_FOUND"
+                    message: "VLAN with ID 999 not found"
+                    details:
+                      vlan_id: 999
+        405:
+          description: Method not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        503:
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Update VLAN
+      description: |
+        Update an existing VLAN's configuration with new settings.
+        
+        This operation supports partial updates - only include the fields you want to change.
+        The same validation rules apply as for creation:
+        - VLAN ID must remain unique if changed
+        - Gateway must be within subnet if network settings are modified
+        - All provided values must pass format validation
+        
+        The update is atomic - either all changes succeed or none are applied.
+      tags:
+        - VLANs
+      operationId: updateVlan
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: |
+            Unique system identifier for the VLAN to update.
+            This is the internal ID assigned by the system, not the VLAN ID.
+          schema:
+            type: integer
+            minimum: 1
+          example: 1
+      requestBody:
+        required: true
+        description: |
+          VLAN update data. Include only the fields you want to modify.
+          Omitted fields will retain their current values.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VLANUpdate'
+            examples:
+              status_change:
+                summary: Change VLAN status
+                description: Example of changing only the VLAN status
+                value:
+                  status: "maintenance"
+              network_reconfiguration:
+                summary: Network reconfiguration
+                description: Example of updating network settings
+                value:
+                  subnet: "192.168.2.0/24"
+                  gateway: "192.168.2.1"
+      responses:
+        200:
+          description: VLAN updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VLAN'
+        400:
+          description: Invalid input data or validation errors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        404:
+          description: VLAN not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                vlan_not_found:
+                  summary: VLAN not found
+                  value:
+                    error: "VLAN_NOT_FOUND"
+                    message: "VLAN with ID 999 not found"
+                    details:
+                      vlan_id: 999
+        405:
+          description: Method not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        409:
+          description: VLAN conflict when updating to existing VLAN ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictError'
+        413:
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        415:
+          description: Unsupported media type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        422:
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        503:
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Delete VLAN
+      description: |
+        Permanently remove a VLAN from the system.
+        
+        **Warning**: This operation is irreversible. Once deleted, the VLAN configuration
+        cannot be recovered and any network devices using this VLAN will lose connectivity.
+        
+        Best practice is to change the VLAN status to 'inactive' first to test the impact
+        before performing the actual deletion.
+      tags:
+        - VLANs
+      operationId: deleteVlan
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: |
+            Unique system identifier for the VLAN to delete.
+            This is the internal ID assigned by the system, not the VLAN ID.
+          schema:
+            type: integer
+            minimum: 1
+          example: 1
+      responses:
+        204:
+          description: VLAN deleted successfully
+        404:
+          description: VLAN not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                vlan_not_found:
+                  summary: VLAN not found
+                  value:
+                    error: "VLAN_NOT_FOUND"
+                    message: "VLAN with ID 999 not found"
+                    details:
+                      vlan_id: 999
+        405:
+          description: Method not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        503:
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /health:
+    get:
+      summary: Health check
+      description: |
+        Perform a comprehensive health check of the VLAN management service.
+        
+        This endpoint verifies:
+        - API service availability
+        - Storage system accessibility
+        - Basic system functionality
+        
+        Used by monitoring systems, load balancers, and container orchestrators
+        to determine service health and readiness.
+      tags:
+        - Health
+      operationId: healthCheck
+      responses:
+        200:
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              examples:
+                healthy_service:
+                  summary: Healthy service
+                  value:
+                    status: "healthy"
+                    timestamp: "2024-01-15T10:30:00Z"
+                    version: "1.0.0"
+                    storage_healthy: true
+        405:
+          description: Method not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        503:
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                storage_unhealthy:
+                  summary: Storage system unavailable
+                  value:
+                    error: "SERVICE_UNHEALTHY"
+                    message: "Storage system is not accessible"
+                    details:
+                      storage_healthy: false
+
+components:
+  schemas:
+    VLAN:
+      type: object
+      required:
+        - id
+        - name
+        - vlan_id
+        - subnet
+        - gateway
+        - status
+      properties:
+        id:
+          type: integer
+          description: |
+            Unique system identifier for the VLAN.
+            Auto-generated when the VLAN is created and cannot be modified.
+          example: 1
+          readOnly: true
+        name:
+          type: string
+          description: |
+            Human-readable descriptive name for the VLAN.
+            Should be unique and meaningful for network administrators.
+          example: "Production Network"
+          maxLength: 100
+          minLength: 1
+        vlan_id:
+          type: integer
+          description: |
+            VLAN identifier.
+            Must be unique across all VLANs in the system.
+            Valid range is 1-4094.
+          minimum: 1
+          maximum: 4094
+          example: 100
+        subnet:
+          type: string
+          description: |
+            Network subnet in CIDR notation (e.g., 192.168.1.0/24).
+            Defines the IP address range for this VLAN.
+          pattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+          example: "192.168.1.0/24"
+        gateway:
+          type: string
+          description: |
+            Gateway IP address for the VLAN subnet.
+            Must be a valid IP address within the specified subnet range.
+            Typically the first or last usable address in the subnet.
+          pattern: '^(\d{1,3}\.){3}\d{1,3}$'
+          example: "192.168.1.1"
+        status:
+          type: string
+          description: |
+            Current operational status of the VLAN:
+            - active: VLAN is operational and processing traffic
+            - inactive: VLAN is configured but not processing traffic
+            - maintenance: VLAN is temporarily disabled for maintenance
+          enum: ["active", "inactive", "maintenance"]
+          example: "active"
+
+    VLANCreate:
+      type: object
+      required:
+        - name
+        - vlan_id
+        - subnet
+        - gateway
+      properties:
+        name:
+          type: string
+          description: Human-readable name for the VLAN
+          example: "Production Network"
+          maxLength: 100
+        vlan_id:
+          type: integer
+          description: VLAN ID
+          minimum: 1
+          maximum: 4094
+          example: 100
+        subnet:
+          type: string
+          description: Subnet in CIDR notation
+          pattern: '^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$'
+          example: "192.168.1.0/24"
+        gateway:
+          type: string
+          description: Gateway IP address
+          pattern: '^(\d{1,3}\.){3}\d{1,3}$'
+          example: "192.168.1.1"
+        status:
+          type: string
+          description: Current status of the VLAN
+          enum: ["active", "inactive", "maintenance"]
+          default: "active"
+          example: "active"
+
+    VLANUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Human-readable name for the VLAN
+          example: "Production Network"
+          maxLength: 100
+        vlan_id:
+          type: integer
+          description: VLAN ID
+          minimum: 1
+          maximum: 4094
+          example: 100
+        subnet:
+          type: string
+          description: Subnet in CIDR notation
+          pattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+          example: "192.168.1.0/24"
+        gateway:
+          type: string
+          description: Gateway IP address
+          pattern: '^(\d{1,3}\.){3}\d{1,3}$'
+          example: "192.168.1.1"
+        status:
+          type: string
+          description: Current status of the VLAN
+          enum: ["active", "inactive", "maintenance"]
+          example: "active"
+
+    Health:
+      type: object
+      required:
+        - status
+        - timestamp
+        - version
+        - storage_healthy
+      properties:
+        status:
+          type: string
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2024-01-01T12:00:00Z"
+        version:
+          type: string
+          example: "1.0.0"
+        storage_healthy:
+          type: boolean
+          description: Whether the storage system is accessible
+          example: true
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code
+          example: "VLAN_NOT_FOUND"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "VLAN with ID 123 not found"
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+          example:
+            vlan_id: 123
+
+    ValidationError:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Validation error code
+          enum: ["VALIDATION_ERROR", "REQUEST_VALIDATION_ERROR"]
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          description: Human-readable validation error message
+          example: "Data validation failed"
+        details:
+          type: object
+          required:
+            - errors
+          properties:
+            errors:
+              type: array
+              description: List of validation errors
+              items:
+                type: object
+                required:
+                  - msg
+                  - type
+                  - loc
+                properties:
+                  msg:
+                    type: string
+                    description: Error message
+                    example: "ensure this value is greater than or equal to 1"
+                  type:
+                    type: string
+                    description: Error type
+                    example: "value_error.number.not_ge"
+                  loc:
+                    type: array
+                    description: Location of the error in the request
+                    items:
+                      oneOf:
+                        - type: string
+                        - type: integer
+                    example: ["vlan_id"]
+
+    ConflictError:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Conflict error code
+          enum: ["VLAN_CONFLICT"]
+          example: "VLAN_CONFLICT"
+        message:
+          type: string
+          description: Human-readable conflict error message
+          example: "VLAN with ID 100 already exists"
+        details:
+          type: object
+          required:
+            - vlan_id
+          properties:
+            vlan_id:
+              type: integer
+              description: The conflicting VLAN ID
+              example: 100
+
+tags:
+  - name: VLANs
+    description: VLAN management operations
+  - name: Health
+    description: Health check operations

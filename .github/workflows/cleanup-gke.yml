@@ -1,0 +1,73 @@
+name: Cleanup GKE Cluster
+
+on:
+  workflow_dispatch:  # Manual trigger only
+    inputs:
+      cluster_name:
+        description: 'GKE Cluster Name to delete'
+        required: true
+        default: 'vlan-api-cluster'
+      zone:
+        description: 'GCP Zone'
+        required: true
+        default: 'us-central1-a'
+      confirm_deletion:
+        description: 'Type "DELETE" to confirm cluster deletion'
+        required: true
+
+jobs:
+  delete-cluster:
+    name: Delete GKE Cluster
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Validate deletion confirmation
+      run: |
+        if [ "${{ github.event.inputs.confirm_deletion }}" != "DELETE" ]; then
+          echo "Deletion not confirmed. You must type 'DELETE' to proceed."
+          exit 1
+        fi
+        echo "Deletion confirmed"
+        
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+        
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      
+    - name: Install GKE auth plugin
+      run: |
+        echo "Installing GKE auth plugin..."
+        gcloud components install gke-gcloud-auth-plugin --quiet
+        
+    - name: Delete GKE cluster
+      run: |
+        export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+        
+        echo "Deleting GKE cluster: ${{ github.event.inputs.cluster_name }}"
+        echo "Zone: ${{ github.event.inputs.zone }}"
+        echo "Project: ${{ secrets.GCP_PROJECT_ID }}"
+        
+        gcloud container clusters delete ${{ github.event.inputs.cluster_name }} \
+          --zone ${{ github.event.inputs.zone }} \
+          --project ${{ secrets.GCP_PROJECT_ID }} \
+          --quiet
+        
+        echo "Cluster deleted successfully!"
+        echo ""
+        echo "Note: Persistent disks may still exist and incur small charges"
+        echo "   Check Google Cloud Console > Compute Engine > Disks if needed"
+        
+    - name: Verify deletion
+      run: |
+        export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+        
+        echo "Verifying cluster deletion..."
+        if gcloud container clusters describe ${{ github.event.inputs.cluster_name }} --zone ${{ github.event.inputs.zone }} --project ${{ secrets.GCP_PROJECT_ID }} > /dev/null 2>&1; then
+          echo "Cluster still exists!"
+          exit 1
+        else
+          echo "Cluster successfully deleted"
+        fi

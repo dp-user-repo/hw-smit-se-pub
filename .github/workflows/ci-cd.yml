@@ -1,0 +1,163 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: vlan-management-api
+
+jobs:
+  test:
+    name: Test and Coverage
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run tests with coverage
+      run: |
+        pytest --cov=app --cov-report=xml --cov-report=html --cov-report=term-missing --cov-fail-under=70 -v
+        
+    - name: Upload coverage reports as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-reports
+        path: |
+          htmlcov/
+          coverage.xml
+        retention-days: 60
+        
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+        
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=sha,prefix=main-,format=short
+          type=raw,value=latest,enable={{is_default_branch}}
+          
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to GKE
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+        
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      
+    - name: Install GKE auth plugin
+      run: |
+        echo "Installing GKE auth plugin..."
+        gcloud components install gke-gcloud-auth-plugin --quiet
+        echo "Verifying plugin installation..."
+        gke-gcloud-auth-plugin --version
+        
+    - name: Get GKE credentials
+      run: |
+        export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+        gcloud container clusters get-credentials vlan-api-cluster --zone us-central1-a --project ${{ secrets.GCP_PROJECT_ID }}
+        
+    - name: Update deployment image
+      run: |
+        # Extract first 7 characters of SHA for shorter tag
+        SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+        IMAGE_TAG="main-${SHORT_SHA}"
+        FULL_IMAGE="${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
+        
+        echo "Updating deployment with image: ${FULL_IMAGE}"
+        
+        # Clean the deployment file first
+        cp k8s/deployment.yaml k8s/deployment.yaml.bak
+        
+        # Update the image in deployment with more explicit replacement
+        sed "s|IMAGE_PLACEHOLDER|${FULL_IMAGE}|g" k8s/deployment.yaml.bak > k8s/deployment.yaml
+        
+        # Verify the replacement worked
+        echo "Deployment file after replacement:"
+        grep -A 2 -B 2 "image:" k8s/deployment.yaml
+        
+    - name: Deploy to GKE
+      run: |
+        export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+        kubectl apply -f k8s/
+        kubectl rollout status deployment/vlan-api-deployment
+        
+    - name: Verify deployment
+      run: |
+        export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+        kubectl get pods -l app=vlan-api
+        kubectl get services
+        echo "Deployment successful!"
+        echo "External IP will be available in a few minutes..."
+
