@@ -36,7 +36,7 @@ VLAN objects contain:
 - **gateway**: Gateway IP address (must be within subnet)
 - **status**: Current status (active, inactive, maintenance)
 
-## Quick Start
+## Quick Start 
 
 ### Development Prerequisites
 
