@@ -214,8 +214,6 @@ Coverage reports from the CI/CD pipeline are available as GitHub Actions artifac
 4. **Download**: Click "coverage-reports" to download the HTML coverage report
 5. **View**: Extract the ZIP file and open `htmlcov/index.html` in your browser
 
-**Alternative**: View coverage online at [Codecov](https://codecov.io/gh/dp-user-repo/hw-smit-se-pub)
-
 ### Accessing Build History
 
 #### Pipeline Execution History
@@ -319,6 +317,26 @@ Configure these secrets in your GitHub repository:
 - `GCP_SA_KEY`: Google Cloud service account key (JSON format)
 - `GCP_PROJECT_ID`: Google Cloud project ID
 
+### Required service account permissions
+
+In Google Cloud Console go to IAM & Admin → IAM and add these roles to your service account:
+  - Kubernetes Engine Admin - Create/delete clusters
+  - Compute Admin - Manage compute resources
+  - Service Account User - Use service accounts
+  - Service Usage Admin - Enable/disable APIs
+
+Optionally, depending on your setup, you might also need roles:
+  - Storage Admin - For container registry access
+  - Logging Admin - For cluster logging
+
+### Google Kubernetes Engine (GKE) Cluster
+
+Setup GKE cluster by running Setup GKE Cluster workflow from GitHub Actions.
+This workflow is defined in .github/workflows/setup-gke.yml
+
+When cluster is no longer needed it can be deleted by running Cleanup GKE Cluster workflow from GitHub Actions.
+This workflow is defined in .github/workflows/cleanup-gke.yml
+
 ## Architecture
 
 The application follows **Clean Architecture** principles with clear separation of concerns:
@@ -364,49 +382,49 @@ The application follows **Clean Architecture** principles with clear separation 
 hw-smit-se-pub/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py              # FastAPI application entry point
-│   ├── api/                 # API layer
+│   ├── main.py               # FastAPI application entry point
+│   ├── api/                  # API layer
 │   │   ├── __init__.py
-│   │   ├── dto.py          # Data Transfer Objects
+│   │   ├── dto.py            # Data Transfer Objects
 │   │   ├── error_handlers.py # Error handling
-│   │   ├── mappers.py      # Entity-DTO mapping
-│   │   └── routes.py       # HTTP endpoints
-│   ├── domain/             # Domain layer
+│   │   ├── mappers.py        # Entity-DTO mapping
+│   │   └── routes.py         # HTTP endpoints
+│   ├── domain/               # Domain layer
 │   │   ├── __init__.py
-│   │   ├── entities.py     # Business entities
-│   │   ├── exceptions.py   # Domain exceptions
-│   │   └── repositories.py # Repository interfaces
-│   ├── infrastructure/     # Infrastructure layer
+│   │   ├── entities.py       # Business entities
+│   │   ├── exceptions.py     # Domain exceptions
+│   │   └── repositories.py   # Repository interfaces
+│   ├── infrastructure/       # Infrastructure layer
 │   │   ├── __init__.py
-│   │   ├── factories.py    # Factory patterns
-│   │   └── repositories.py # Repository implementations
-│   └── services/           # Service layer
+│   │   ├── factories.py      # Factory patterns
+│   │   └── repositories.py   # Repository implementations
+│   └── services/             # Service layer
 │       ├── __init__.py
-│       ├── dependency_injection.py # IoC container
-│       └── vlan_service.py # Business logic
+│       ├── dependency_injection.py   # IoC container
+│       └── vlan_service.py    # Business logic
 ├── tests/
 │   ├── __init__.py
-│   ├── test_api.py         # API endpoint tests
+│   ├── test_api.py            # API endpoint tests
 │   ├── test_error_handling.py # Error handling tests
-│   ├── test_models.py      # DTO validation tests
-│   ├── test_repository.py  # Repository layer tests
-│   └── test_vlan_service.py # Service logic tests
-├── k8s/                    # Kubernetes manifests
-│   ├── configmap.yaml      # Configuration
-│   ├── deployment.yaml     # Pod deployment
-│   └── service.yaml        # Service definition
-├── .github/workflows/      # CI/CD pipeline
-│   ├── ci-cd.yml          # Main pipeline
-│   ├── cleanup-gke.yml    # Cluster cleanup
-│   └── setup-gke.yml      # Cluster setup
-├── kodutoo.md             # Assignment documentation (Estonian)
-├── openapi.yml            # OpenAPI specification
-├── Dockerfile             # Container configuration
-├── entrypoint.sh          # Data storage folder init for vlans.json
-├── requirements.txt       # Python dependencies
-├── pytest.ini             # Test configuration
-├── vlans.json             # Local data storage
-└── README.md              # This file
+│   ├── test_models.py         # DTO validation tests
+│   ├── test_repository.py     # Repository layer tests
+│   └── test_vlan_service.py   # Service logic tests
+├── k8s/                       # Kubernetes manifests
+│   ├── configmap.yaml         # Configuration
+│   ├── deployment.yaml        # Pod deployment
+│   └── service.yaml           # Service definition
+├── .github/workflows/         # Github Actions workflows
+│   ├── ci-cd.yml              # CI/CD pipeline covering Test, Build and Deploy stages
+│   ├── cleanup-gke.yml        # Cluster cleanup
+│   └── setup-gke.yml          # Cluster setup
+├── kodutoo.md                 # Assignment documentation (Estonian)
+├── openapi.yml                # OpenAPI specification
+├── Dockerfile                 # Container configuration
+├── entrypoint.sh              # Data storage folder init for vlans.json
+├── requirements.txt           # Python dependencies
+├── pytest.ini                 # Test configuration
+├── vlans.json                 # Local data storage
+└── README.md                  # This file
 ```
 
 ### Code Quality
